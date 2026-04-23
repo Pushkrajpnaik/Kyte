@@ -25,6 +25,7 @@ class FirestoreService {
   }
 
   final bool _demoMode;
+  bool _localFallback = false;
   final List<Member> _demoMembers;
   final StreamController<List<Member>> _demoController;
   FirebaseFirestore? _firestore;
@@ -33,7 +34,23 @@ class FirestoreService {
     return _firestore ??= FirebaseFirestore.instance;
   }
 
-  bool get isDemoMode => _demoMode;
+  bool get isDemoMode => _demoMode || _localFallback;
+
+  bool get isLocalFallback => _localFallback;
+
+  bool get _isLocalMode => _demoMode || _localFallback;
+
+  Future<void> enableLocalFallback() async {
+    if (_localFallback) {
+      return;
+    }
+
+    _localFallback = true;
+    if (_demoMembers.isEmpty) {
+      _demoMembers.addAll(demoMembers);
+    }
+    emitCurrentMembers();
+  }
 
   void _configureFirestore() {
     try {
@@ -44,7 +61,7 @@ class FirestoreService {
   }
 
   Future<List<Member>> getMembersOnce() async {
-    if (_demoMode) {
+    if (_isLocalMode) {
       return _sortedDemoMembers();
     }
 
@@ -61,7 +78,7 @@ class FirestoreService {
       return null;
     }
 
-    if (_demoMode) {
+    if (_isLocalMode) {
       for (final member in _demoMembers) {
         if (member.id == memberId) {
           return member;
@@ -111,30 +128,19 @@ class FirestoreService {
   }
 
   Stream<List<Member>> watchMembers() {
-    if (_demoMode) {
+    if (_isLocalMode) {
       return _demoController.stream;
     }
 
-    return _firestoreClient
-        .collection('members')
-        .snapshots()
-        .map((snapshot) {
-          final members = snapshot.docs.map(Member.fromFirestore).toList();
-          members.sort((left, right) => left.name.compareTo(right.name));
-          return members;
-        })
-        .handleError((Object error) {
-          throw MemberDataException(
-            _friendlyErrorMessage(
-              error,
-              defaultMessage: 'Unable to stream member updates right now.',
-            ),
-          );
-        });
+    return _firestoreClient.collection('members').snapshots().map((snapshot) {
+      final members = snapshot.docs.map(Member.fromFirestore).toList();
+      members.sort((left, right) => left.name.compareTo(right.name));
+      return members;
+    });
   }
 
   Future<void> ensureSeedDataIfEmpty() async {
-    if (_demoMode) {
+    if (_isLocalMode) {
       return;
     }
 
@@ -154,7 +160,7 @@ class FirestoreService {
   }
 
   void emitCurrentMembers() {
-    if (!_demoMode || _demoController.isClosed) {
+    if (!_isLocalMode || _demoController.isClosed) {
       return;
     }
 
@@ -162,7 +168,7 @@ class FirestoreService {
   }
 
   Future<String> addMember(Member member) async {
-    if (_demoMode) {
+    if (_isLocalMode) {
       final newMember = member.id.isEmpty
           ? member.copyWith(id: 'demo-${DateTime.now().millisecondsSinceEpoch}')
           : member;
@@ -171,18 +177,23 @@ class FirestoreService {
       return newMember.id;
     }
 
-    return _executeWithRetry(() async {
-      final docRef = member.id.isEmpty
-          ? _firestoreClient.collection('members').doc()
-          : _firestoreClient.collection('members').doc(member.id);
-      final payload = member.copyWith(id: docRef.id);
-      await docRef.set(payload.toMap());
-      return docRef.id;
-    }, defaultMessage: 'Unable to add member right now.');
+    try {
+      return await _executeWithRetry(() async {
+        final docRef = member.id.isEmpty
+            ? _firestoreClient.collection('members').doc()
+            : _firestoreClient.collection('members').doc(member.id);
+        final payload = member.copyWith(id: docRef.id);
+        await docRef.set(payload.toMap());
+        return docRef.id;
+      }, defaultMessage: 'Unable to add member right now.');
+    } catch (error) {
+      await enableLocalFallback();
+      return addMember(member);
+    }
   }
 
   Future<void> updateMember(Member member) async {
-    if (_demoMode) {
+    if (_isLocalMode) {
       final index = _demoMembers.indexWhere((item) => item.id == member.id);
       if (index != -1) {
         _demoMembers[index] = member;
@@ -191,31 +202,41 @@ class FirestoreService {
       return;
     }
 
-    await _executeWithRetry(() async {
-      await _firestoreClient
-          .collection('members')
-          .doc(member.id)
-          .set(member.toMap());
-    }, defaultMessage: 'Unable to update member right now.');
+    try {
+      await _executeWithRetry(() async {
+        await _firestoreClient
+            .collection('members')
+            .doc(member.id)
+            .set(member.toMap());
+      }, defaultMessage: 'Unable to update member right now.');
+    } catch (error) {
+      await enableLocalFallback();
+      await updateMember(member);
+    }
   }
 
   Future<void> deleteMember(String memberId) async {
-    if (_demoMode) {
+    if (_isLocalMode) {
       _demoMembers.removeWhere((member) => member.id == memberId);
       emitCurrentMembers();
       return;
     }
 
-    await _executeWithRetry(() async {
-      await _firestoreClient.collection('members').doc(memberId).delete();
-    }, defaultMessage: 'Unable to delete member right now.');
+    try {
+      await _executeWithRetry(() async {
+        await _firestoreClient.collection('members').doc(memberId).delete();
+      }, defaultMessage: 'Unable to delete member right now.');
+    } catch (error) {
+      await enableLocalFallback();
+      await deleteMember(memberId);
+    }
   }
 
   Future<void> deleteSubtree(String memberId) async {
     final members = await getMembersOnce();
     final idsToDelete = _collectSubtreeIds(memberId, members);
 
-    if (_demoMode) {
+    if (_isLocalMode) {
       _demoMembers.removeWhere((member) => idsToDelete.contains(member.id));
       emitCurrentMembers();
       return;

@@ -7,9 +7,10 @@ import '../utils/app_theme.dart';
 import '../utils/member_roles.dart';
 
 class AddMemberScreen extends StatefulWidget {
-  const AddMemberScreen({super.key, this.member});
+  const AddMemberScreen({super.key, this.member, this.showHeader = true});
 
   final Member? member;
+  final bool showHeader;
 
   @override
   State<AddMemberScreen> createState() => _AddMemberScreenState();
@@ -70,7 +71,9 @@ class _AddMemberScreenState extends State<AddMemberScreen> {
       }
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Circular manager assignment is not allowed')),
+        const SnackBar(
+          content: Text('Circular manager assignment is not allowed'),
+        ),
       );
       return;
     }
@@ -104,11 +107,25 @@ class _AddMemberScreenState extends State<AddMemberScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            _isEditMode ? 'Member updated successfully' : 'Member added successfully',
+            _isEditMode
+                ? 'Member updated successfully'
+                : 'Member added successfully',
           ),
         ),
       );
-      Navigator.of(context).pop(true);
+      if (widget.showHeader && Navigator.of(context).canPop()) {
+        Navigator.of(context).pop(true);
+      } else if (!_isEditMode) {
+        _formKey.currentState?.reset();
+        _nameController.clear();
+        _departmentController.clear();
+        _teamController.clear();
+        _photoUrlController.clear();
+        setState(() {
+          _selectedRole = null;
+          _selectedManagerId = null;
+        });
+      }
     } catch (error) {
       if (!mounted) {
         return;
@@ -139,7 +156,8 @@ class _AddMemberScreenState extends State<AddMemberScreen> {
           key: _formKey,
           child: Column(
             children: [
-              _Header(onBack: () => Navigator.of(context).pop()),
+              if (widget.showHeader)
+                _Header(onBack: () => Navigator.of(context).pop()),
               Expanded(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.all(16),
@@ -148,8 +166,7 @@ class _AddMemberScreenState extends State<AddMemberScreen> {
                     children: [
                       _SectionCard(
                         title: 'Member details',
-                        subtitle:
-                          _isEditMode
+                        subtitle: _isEditMode
                             ? 'Update the selected member and keep the hierarchy valid.'
                             : 'Create a new member record with the reporting relationship you need.',
                         child: Column(
@@ -282,7 +299,9 @@ class _AddMemberScreenState extends State<AddMemberScreen> {
                                     color: Colors.white,
                                   ),
                                 )
-                              : Text(_isEditMode ? 'Save Changes' : 'Add Member'),
+                              : Text(
+                                  _isEditMode ? 'Save Changes' : 'Add Member',
+                                ),
                         ),
                       ),
                     ],

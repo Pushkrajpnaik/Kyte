@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/member_provider.dart';
-import '../screens/home_screen.dart';
+import '../screens/main_navigation_screen.dart';
 import '../services/firestore_service.dart';
 import '../utils/app_theme.dart';
 import 'bootstrap.dart';
@@ -18,10 +18,10 @@ class KyteApp extends StatelessWidget {
       create: (_) =>
           MemberProvider(FirestoreService(demoMode: bootstrap.demoMode)),
       child: MaterialApp(
-        debugShowCheckedModeBanner:  false,
+        debugShowCheckedModeBanner: false,
         title: 'Kyte',
         theme: AppTheme.dark(),
-        home: HomeScreen(bootstrap: bootstrap),
+        home: MainNavigationScreen(bootstrap: bootstrap),
       ),
     );
   }
